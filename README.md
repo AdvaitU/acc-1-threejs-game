@@ -1,17 +1,17 @@
 # acc-1-threejs-game
 Video game prototype created as the final project for Advanced Creative Coding-1 at CCI.
 
-Find a video demonstration here: https://youtu.be/0XNom6zfKkc
-Link to GitHub Repo: https://github.com/AdvaitU/acc-1-threejs-game
-Link to MIMIC Project Build: https://mimicproject.com/code/0d7dc9c2-37dc-d5db-5d56-1e19e1c50f24
+**Find a video demonstration here:** https://youtu.be/0XNom6zfKkc
+**Link to GitHub Repo:** https://github.com/AdvaitU/acc-1-threejs-game
+**Link to MIMIC Project Build:** https://mimicproject.com/code/0d7dc9c2-37dc-d5db-5d56-1e19e1c50f24
 
-PROJECT INTRODUCTION
+**PROJECT INTRODUCTION**
 For a while now, I've been toying with the idea of creating a first person detective game. , one that allows a player free reign but almost no information when dropping them into a world frozen in time. The player can then move around the world as they see it, discovering the stories waiting to be told through a series of object-specific clues. These clues include newspaper articles, excerpts from books, screenshots from Youtube, copies of travel tickets and governmental permits, text chains between the people in this world, scientific papers, etc. These clues can be obtained in any order by travelling to any object in the scene and reading things that pop up. The game works by crafting a story but only telling it thropugh disorganised snippets gathered in random orders and watching the player piece it together one by one. Ideally, an endpoint of solving the mystery would exist but doesn't in this prototype due to constraints in time and technical ability. But only upwards from here :D
 
-ABOUT THIS PROTOTYPE
+**ABOUT THIS PROTOTYPE**
 The prototype (POC) is built in threejs and uses inbuilt threejs geometries to build out a number of objects such as planets, satellites, spaceships, shields, bullets, etc. Although limited currently, I see a final version that I can afford more time to having a vastly more intricately crafted scene. The current programme is habited by 5-6 spaceships of two different kinds, rockets, planets, and satellites along with a unique 'hero' ship, bullet and shield animations and a randomly generated array of celestial bodies floating around in space. The player can use standard orbital controls to navigate the scene. When the player is within a 50x50x50 cuboidal distance from an object, the object pops up a sprite created in Adobe Illustrator that acts as the aformentioned 'clue'. The webpage also plays a sound unique to the object in addition to the deep space background track.
 
-ABOUT MY PROCESS - EXPERIMENTATION
+**ABOUT MY PROCESS - EXPERIMENTATION**
 The entire project hinged on creating a system that coulkd detect collisions between the camera (player) and the object in the scene. Thanks to a few tutorials on YouTUbe and the documentation at threejs.org, I was able to build a system of Bounding Boxes around all objects as well as a large bounding box that wraps around the camera in the scene. When the camera bounding box intersects another object's bounding box, a sprite is inserted into the scene using the box3.intersects(box3) method conditional. While it is certainly not the most elegant system, I'm proud of having created it 3 weeks into first hearing the world threejs :). Apart from the collision detection system, I explored threejs documentation to did a series of other experiements that add to the scene. Some of my favourites that I found the most fun to do are:
 
 1. Bump Maps! - Who knew putting a black and white seemingly random looking JPEG in my programme could help create such intricate surfaces! (Most programmers I assume, 
@@ -28,7 +28,3 @@ The entire project hinged on creating a system that coulkd detect collisions bet
 7. Extrude Geometry - When inbuilt geometry wasn't enough and I was refraining from creating and importing models from CAD so as to explore threejs as much as I could, 
                       drawing shapes and extruding them helped create the vision I had for the Control Rooms in the scene.
 8. Audio Loader - Helped wrap the scene up and really create the environment I was looking to invoke.
-
-
-
-
