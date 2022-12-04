@@ -1,0 +1,1238 @@
+<html>
+
+<head>
+
+ <!-- Importing Three JS and JS file for Orbit Control -->
+   
+  <script>window.onerror = function(error, url, line) {parent.postMessage(["console", "❌ -- [ERROR] -- ❌ -- ⚠️ " + error], "*")};var cl = console.log;console.log = function () {var msg = [...arguments].join();parent.postMessage(["console", msg], "*");  }  </script><script>window.onerror = function(error, url, line) {parent.postMessage(["console", "❌ -- [ERROR] -- ❌ -- ⚠️ " + error], "*")};var cl = console.log;console.log = function () {var msg = [...arguments].join();parent.postMessage(["console", msg], "*");  } 
+</script><script crossorigin src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/109/three.min.js">
+</script>
+  <script language="javascript" type="text/javascript">
+
+// This set of controls performs orbiting, dollying (zooming), and panning. It maintains
+// the "up" direction as +Y, unlike the TrackballControls. Touch on tablet and phones is
+// supported.
+//
+//    Orbit - left mouse / touch: one finger move
+//    Zoom - middle mouse, or mousewheel / touch: two finger spread or squish
+//    Pan - right mouse, or arrow keys / touch: three finter swipe
+//
+// This is a drop-in replacement for (most) TrackballControls used in examples.
+// That is, include this js file and wherever you see:
+//    	controls = new THREE.TrackballControls( camera );
+//      controls.target.z = 150;
+// Simple substitute "OrbitControls" and the control should work as-is.
+
+THREE.OrbitControls = function ( object, domElement, localElement ) {
+
+	this.object = object;
+	this.domElement = ( domElement !== undefined ) ? domElement : document;
+	this.localElement = ( localElement !== undefined ) ? localElement : document;
+
+	// API
+
+	// Set to false to disable this control
+	this.enabled = true;
+
+	// "target" sets the location of focus, where the control orbits around
+	// and where it pans with respect to.
+	this.target = new THREE.Vector3();
+	// center is old, deprecated; use "target" instead
+	this.center = this.target;
+
+	// This option actually enables dollying in and out; left as "zoom" for
+	// backwards compatibility
+	this.noZoom = false;
+	this.zoomSpeed = 1.0;
+	// Limits to how far you can dolly in and out
+	this.minDistance = 0;
+	this.maxDistance = Infinity;
+
+	// Set to true to disable this control
+	this.noRotate = false;
+	this.rotateSpeed = 1.0;
+
+	// Set to true to disable this control
+	this.noPan = false;
+	this.keyPanSpeed = 7.0;	// pixels moved per arrow key push
+
+	// Set to true to automatically rotate around the target
+	this.autoRotate = false;
+	this.autoRotateSpeed = 2.0; // 30 seconds per round when fps is 60
+
+	// How far you can orbit vertically, upper and lower limits.
+	// Range is 0 to Math.PI radians.
+	this.minPolarAngle = 0; // radians
+	this.maxPolarAngle = Math.PI; // radians
+
+	// Set to true to disable use of the keys
+	this.noKeys = false;
+	// The four arrow keys
+	this.keys = { LEFT: 37, UP: 38, RIGHT: 39, BOTTOM: 40 };
+
+	////////////
+	// internals
+
+	var scope = this;
+
+	var EPS = 0.000001;
+
+	var rotateStart = new THREE.Vector2();
+	var rotateEnd = new THREE.Vector2();
+	var rotateDelta = new THREE.Vector2();
+
+	var panStart = new THREE.Vector2();
+	var panEnd = new THREE.Vector2();
+	var panDelta = new THREE.Vector2();
+
+	var dollyStart = new THREE.Vector2();
+	var dollyEnd = new THREE.Vector2();
+	var dollyDelta = new THREE.Vector2();
+
+	var phiDelta = 0;
+	var thetaDelta = 0;
+	var scale = 1;
+	var pan = new THREE.Vector3();
+
+	var lastPosition = new THREE.Vector3();
+
+	var STATE = { NONE : -1, ROTATE : 0, DOLLY : 1, PAN : 2, TOUCH_ROTATE : 3, TOUCH_DOLLY : 4, TOUCH_PAN : 5 };
+	var state = STATE.NONE;
+
+	// events
+
+	var changeEvent = { type: 'change' };
+
+
+	this.rotateLeft = function ( angle ) {
+
+		if ( angle === undefined ) {
+
+			angle = getAutoRotationAngle();
+
+		}
+
+		thetaDelta -= angle;
+
+	};
+
+	this.rotateUp = function ( angle ) {
+
+		if ( angle === undefined ) {
+
+			angle = getAutoRotationAngle();
+
+		}
+
+		phiDelta -= angle;
+
+	};
+
+	// pass in distance in world space to move left
+	this.panLeft = function ( distance ) {
+
+		var panOffset = new THREE.Vector3();
+		var te = this.object.matrix.elements;
+		// get X column of matrix
+		panOffset.set( te[0], te[1], te[2] );
+		panOffset.multiplyScalar(-distance);
+		
+		pan.add( panOffset );
+
+	};
+
+	// pass in distance in world space to move up
+	this.panUp = function ( distance ) {
+
+		var panOffset = new THREE.Vector3();
+		var te = this.object.matrix.elements;
+		// get Y column of matrix
+		panOffset.set( te[4], te[5], te[6] );
+		panOffset.multiplyScalar(distance);
+		
+		pan.add( panOffset );
+	};
+	
+	// main entry point; pass in Vector2 of change desired in pixel space,
+	// right and down are positive
+	this.pan = function ( delta ) {
+
+		var element = scope.domElement === document ? scope.domElement.body : scope.domElement;
+
+		if ( scope.object.fov !== undefined ) {
+
+			// perspective
+			var position = scope.object.position;
+			var offset = position.clone().sub( scope.target );
+			var targetDistance = offset.length();
+
+			// half of the fov is center to top of screen
+			targetDistance *= Math.tan( (scope.object.fov/2) * Math.PI / 180.0 );
+			// we actually don't use screenWidth, since perspective camera is fixed to screen height
+			scope.panLeft( 2 * delta.x * targetDistance / element.clientHeight );
+			scope.panUp( 2 * delta.y * targetDistance / element.clientHeight );
+
+		} else if ( scope.object.top !== undefined ) {
+
+			// orthographic
+			scope.panLeft( delta.x * (scope.object.right - scope.object.left) / element.clientWidth );
+			scope.panUp( delta.y * (scope.object.top - scope.object.bottom) / element.clientHeight );
+
+		} else {
+
+			// camera neither orthographic or perspective - warn user
+			console.warn( 'WARNING: OrbitControls.js encountered an unknown camera type - pan disabled.' );
+parent.postMessage(["console",JSON.stringify('WARNING: OrbitControls.js encountered an unknown camera type - pan disabled.')], "*");
+
+		}
+
+	};
+
+	this.dollyIn = function ( dollyScale ) {
+
+		if ( dollyScale === undefined ) {
+
+			dollyScale = getZoomScale();
+
+		}
+
+		scale /= dollyScale;
+
+	};
+
+	this.dollyOut = function ( dollyScale ) {
+
+		if ( dollyScale === undefined ) {
+
+			dollyScale = getZoomScale();
+
+		}
+
+		scale *= dollyScale;
+
+	};
+
+	this.update = function () {
+
+		var position = this.object.position;
+		var offset = position.clone().sub( this.target );
+
+		// angle from z-axis around y-axis
+
+		var theta = Math.atan2( offset.x, offset.z );
+
+		// angle from y-axis
+
+		var phi = Math.atan2( Math.sqrt( offset.x * offset.x + offset.z * offset.z ), offset.y );
+
+		if ( this.autoRotate ) {
+
+			this.rotateLeft( getAutoRotationAngle() );
+
+		}
+
+		theta += thetaDelta;
+		phi += phiDelta;
+
+		// restrict phi to be between desired limits
+		phi = Math.max( this.minPolarAngle, Math.min( this.maxPolarAngle, phi ) );
+
+		// restrict phi to be betwee EPS and PI-EPS
+		phi = Math.max( EPS, Math.min( Math.PI - EPS, phi ) );
+
+		var radius = offset.length() * scale;
+
+		// restrict radius to be between desired limits
+		radius = Math.max( this.minDistance, Math.min( this.maxDistance, radius ) );
+		
+		// move target to panned location
+		this.target.add( pan );
+
+		offset.x = radius * Math.sin( phi ) * Math.sin( theta );
+		offset.y = radius * Math.cos( phi );
+		offset.z = radius * Math.sin( phi ) * Math.cos( theta );
+
+		position.copy( this.target ).add( offset );
+
+		this.object.lookAt( this.target );
+
+		thetaDelta = 0;
+		phiDelta = 0;
+		scale = 1;
+		pan.set(0,0,0);
+
+		if ( lastPosition.distanceTo( this.object.position ) > 0 ) {
+
+			this.dispatchEvent( changeEvent );
+
+			lastPosition.copy( this.object.position );
+
+		}
+
+	};
+
+
+	function getAutoRotationAngle() {
+
+		return 2 * Math.PI / 60 / 60 * scope.autoRotateSpeed;
+
+	}
+
+	function getZoomScale() {
+
+		return Math.pow( 0.95, scope.zoomSpeed );
+
+	}
+
+	function onMouseDown( event ) {
+
+		if ( scope.enabled === false ) { return; }
+		event.preventDefault();
+
+		if ( event.button === 0 ) {
+			if ( scope.noRotate === true ) { return; }
+
+			state = STATE.ROTATE;
+
+			rotateStart.set( event.clientX, event.clientY );
+
+		} else if ( event.button === 1 ) {
+			if ( scope.noZoom === true ) { return; }
+
+			state = STATE.DOLLY;
+
+			dollyStart.set( event.clientX, event.clientY );
+
+		} else if ( event.button === 2 ) {
+			if ( scope.noPan === true ) { return; }
+
+			state = STATE.PAN;
+
+			panStart.set( event.clientX, event.clientY );
+
+		}
+
+		// Greggman fix: https://github.com/greggman/three.js/commit/fde9f9917d6d8381f06bf22cdff766029d1761be
+		scope.domElement.addEventListener( 'mousemove', onMouseMove, false );
+		scope.domElement.addEventListener( 'mouseup', onMouseUp, false );
+
+	}
+
+	function onMouseMove( event ) {
+
+		if ( scope.enabled === false ) return;
+
+		event.preventDefault();
+
+		var element = scope.domElement === document ? scope.domElement.body : scope.domElement;
+
+		if ( state === STATE.ROTATE ) {
+
+			if ( scope.noRotate === true ) return;
+
+			rotateEnd.set( event.clientX, event.clientY );
+			rotateDelta.subVectors( rotateEnd, rotateStart );
+
+			// rotating across whole screen goes 360 degrees around
+			scope.rotateLeft( 2 * Math.PI * rotateDelta.x / element.clientWidth * scope.rotateSpeed );
+			// rotating up and down along whole screen attempts to go 360, but limited to 180
+			scope.rotateUp( 2 * Math.PI * rotateDelta.y / element.clientHeight * scope.rotateSpeed );
+
+			rotateStart.copy( rotateEnd );
+
+		} else if ( state === STATE.DOLLY ) {
+
+			if ( scope.noZoom === true ) return;
+
+			dollyEnd.set( event.clientX, event.clientY );
+			dollyDelta.subVectors( dollyEnd, dollyStart );
+
+			if ( dollyDelta.y > 0 ) {
+
+				scope.dollyIn();
+
+			} else {
+
+				scope.dollyOut();
+
+			}
+
+			dollyStart.copy( dollyEnd );
+
+		} else if ( state === STATE.PAN ) {
+
+			if ( scope.noPan === true ) return;
+
+			panEnd.set( event.clientX, event.clientY );
+			panDelta.subVectors( panEnd, panStart );
+			
+			scope.pan( panDelta );
+
+			panStart.copy( panEnd );
+
+		}
+
+		// Greggman fix: https://github.com/greggman/three.js/commit/fde9f9917d6d8381f06bf22cdff766029d1761be
+		scope.update();
+
+	}
+
+	function onMouseUp( /* event */ ) {
+
+		if ( scope.enabled === false ) return;
+
+		// Greggman fix: https://github.com/greggman/three.js/commit/fde9f9917d6d8381f06bf22cdff766029d1761be
+		scope.domElement.removeEventListener( 'mousemove', onMouseMove, false );
+		scope.domElement.removeEventListener( 'mouseup', onMouseUp, false );
+
+		state = STATE.NONE;
+
+	}
+
+	function onMouseWheel( event ) {
+
+		if ( scope.enabled === false || scope.noZoom === true ) return;
+
+		var delta = 0;
+
+		if ( event.wheelDelta ) { // WebKit / Opera / Explorer 9
+
+			delta = event.wheelDelta;
+
+		} else if ( event.detail ) { // Firefox
+
+			delta = - event.detail;
+
+		}
+
+		if ( delta > 0 ) {
+
+			scope.dollyOut();
+
+		} else {
+
+			scope.dollyIn();
+
+		}
+
+	}
+
+	function onKeyDown( event ) {
+
+		if ( scope.enabled === false ) { return; }
+		if ( scope.noKeys === true ) { return; }
+		if ( scope.noPan === true ) { return; }
+
+		// pan a pixel - I guess for precise positioning?
+		// Greggman fix: https://github.com/greggman/three.js/commit/fde9f9917d6d8381f06bf22cdff766029d1761be
+		var needUpdate = false;
+		
+		switch ( event.keyCode ) {
+
+			case scope.keys.UP:
+				scope.pan( new THREE.Vector2( 0, scope.keyPanSpeed ) );
+				needUpdate = true;
+				break;
+			case scope.keys.BOTTOM:
+				scope.pan( new THREE.Vector2( 0, -scope.keyPanSpeed ) );
+				needUpdate = true;
+				break;
+			case scope.keys.LEFT:
+				scope.pan( new THREE.Vector2( scope.keyPanSpeed, 0 ) );
+				needUpdate = true;
+				break;
+			case scope.keys.RIGHT:
+				scope.pan( new THREE.Vector2( -scope.keyPanSpeed, 0 ) );
+				needUpdate = true;
+				break;
+		}
+
+		// Greggman fix: https://github.com/greggman/three.js/commit/fde9f9917d6d8381f06bf22cdff766029d1761be
+		if ( needUpdate ) {
+
+			scope.update();
+
+		}
+
+	}
+	
+	function touchstart( event ) {
+
+		if ( scope.enabled === false ) { return; }
+
+		switch ( event.touches.length ) {
+
+			case 1:	// one-fingered touch: rotate
+				if ( scope.noRotate === true ) { return; }
+
+				state = STATE.TOUCH_ROTATE;
+
+				rotateStart.set( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY );
+				break;
+
+			case 2:	// two-fingered touch: dolly
+				if ( scope.noZoom === true ) { return; }
+
+				state = STATE.TOUCH_DOLLY;
+
+				var dx = event.touches[ 0 ].pageX - event.touches[ 1 ].pageX;
+				var dy = event.touches[ 0 ].pageY - event.touches[ 1 ].pageY;
+				var distance = Math.sqrt( dx * dx + dy * dy );
+				dollyStart.set( 0, distance );
+				break;
+
+			case 3: // three-fingered touch: pan
+				if ( scope.noPan === true ) { return; }
+
+				state = STATE.TOUCH_PAN;
+
+				panStart.set( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY );
+				break;
+
+			default:
+				state = STATE.NONE;
+
+		}
+	}
+
+	function touchmove( event ) {
+
+		if ( scope.enabled === false ) { return; }
+
+		event.preventDefault();
+		event.stopPropagation();
+
+		var element = scope.domElement === document ? scope.domElement.body : scope.domElement;
+
+		switch ( event.touches.length ) {
+
+			case 1: // one-fingered touch: rotate
+				if ( scope.noRotate === true ) { return; }
+				if ( state !== STATE.TOUCH_ROTATE ) { return; }
+
+				rotateEnd.set( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY );
+				rotateDelta.subVectors( rotateEnd, rotateStart );
+
+				// rotating across whole screen goes 360 degrees around
+				scope.rotateLeft( 2 * Math.PI * rotateDelta.x / element.clientWidth * scope.rotateSpeed );
+				// rotating up and down along whole screen attempts to go 360, but limited to 180
+				scope.rotateUp( 2 * Math.PI * rotateDelta.y / element.clientHeight * scope.rotateSpeed );
+
+				rotateStart.copy( rotateEnd );
+				break;
+
+			case 2: // two-fingered touch: dolly
+				if ( scope.noZoom === true ) { return; }
+				if ( state !== STATE.TOUCH_DOLLY ) { return; }
+
+				var dx = event.touches[ 0 ].pageX - event.touches[ 1 ].pageX;
+				var dy = event.touches[ 0 ].pageY - event.touches[ 1 ].pageY;
+				var distance = Math.sqrt( dx * dx + dy * dy );
+
+				dollyEnd.set( 0, distance );
+				dollyDelta.subVectors( dollyEnd, dollyStart );
+
+				if ( dollyDelta.y > 0 ) {
+
+					scope.dollyOut();
+
+				} else {
+
+					scope.dollyIn();
+
+				}
+
+				dollyStart.copy( dollyEnd );
+				break;
+
+			case 3: // three-fingered touch: pan
+				if ( scope.noPan === true ) { return; }
+				if ( state !== STATE.TOUCH_PAN ) { return; }
+
+				panEnd.set( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY );
+				panDelta.subVectors( panEnd, panStart );
+				
+				scope.pan( panDelta );
+
+				panStart.copy( panEnd );
+				break;
+
+			default:
+				state = STATE.NONE;
+
+		}
+
+	}
+
+	function touchend( /* event */ ) {
+
+		if ( scope.enabled === false ) { return; }
+
+		state = STATE.NONE;
+	}
+
+	this.domElement.addEventListener( 'contextmenu', function ( event ) { event.preventDefault(); }, false );
+	this.localElement.addEventListener( 'mousedown', onMouseDown, false );
+	this.domElement.addEventListener( 'mousewheel', onMouseWheel, false );
+	this.domElement.addEventListener( 'DOMMouseScroll', onMouseWheel, false ); // firefox
+
+	this.domElement.addEventListener( 'keydown', onKeyDown, false );
+
+	this.localElement.addEventListener( 'touchstart', touchstart, false );
+	this.domElement.addEventListener( 'touchend', touchend, false );
+	this.domElement.addEventListener( 'touchmove', touchmove, false );
+
+};
+
+THREE.OrbitControls.prototype = Object.create( THREE.EventDispatcher.prototype );
+</script>
+
+  
+	<meta charset="utf-8">
+	<style>
+		body {
+			margin: 0px;
+			background-color: #000000;
+			overflow: hidden;
+		}
+	</style>
+</head>
+
+<body>
+	<script>
+//--------------------------------------------- INTRODUCTION -------------------------------------------------//
+      
+/* Hello!
+For my final project, I decided to make a game I've been toying with for a while now. It is a first person discovery/exploration game that starts at a freeze frame and lets the player explore a moment frozen in time to uncover its mysteries.
+The idea is that the player is dropped into the world with no introduction or no sense of what's going in. The fictional world, set in outer space, is mysteriously frozen in time. When the player travels around it, snippets of information about the objects in the scene are revealed in the form of fictional newspaper articles, scientific papers, copies of tickets, text message chains, youtube screenshots, excerpts from the books in the world, etc. The player can then piece together what happened in this world and what got it here.
+
+What does this code include?
+- Multiple Three.js objects created using a variety of techniques I discovered on the official threejs documentation site.
+- An audio system that plays different audios when you interact with objects.
+- A collision detection system which uses the camera's position relative to an object to tell whether the player is in the 'vicinity'. If the player is, it creates a Sprite in the scene which gives information about the object. 
+
+How is the code structured?
+//--- HEADING ---//s separate functional sections of the code.
+//--------------- is a soft separate which means one block is over but that it is the same section of code
+// HEADING ------- is used for subheadings within sections/blocks.
+// Comment is used to point out key details
+
+      
+*/
+      
+//---------------------------------------- MAIN CODE STARTS HERE ---------------------------------------------//
+      
+      
+//---------------------------------- CREATING SCENE AND RENDERER OBJECTS ------------------------------------//
+      
+
+	var scene = new THREE.Scene();  // Creating the scene
+    var renderer = new THREE.WebGLRenderer(); // Creating a renderer object
+      
+      
+//------------------------------------------- CREATING OBJECTS ----------------------------------------------// 
+    
+      
+      // SPLASH SCREEN - The Screen the player sees when they first enter the world --------------------------
+      var sssGeometry = new THREE.BoxGeometry(9.04, 6.16, 0.0001); // Almost a plane
+      var ssPNG = new THREE.TextureLoader().load('15-01.jpg');  //Loading a PNG
+      var sssMaterial = new THREE.MeshBasicMaterial({map: ssPNG});
+      var ssSprite = new THREE.Mesh(sssGeometry, sssMaterial);
+      ssSprite.position.set(-71,-5,73);   // Right in front of the camera's initial position
+      ssSprite.rotation.set(0,-0.76,0);
+      
+      
+      
+      
+
+// PLANETARY OBJECTS ------------------------------------------------------------------------------------------   
+      
+      
+    // MAIN PLANET --------------------------------------------------------------------------------------------  
+      
+    const planet = new THREE.SphereGeometry( 100, 64, 32 );
+      
+    var plTexture = new THREE.TextureLoader().load('bump_planet.jpg'); // Bump Map
+    var pl2Texture = new THREE.TextureLoader().load('pl2.jpg');        // Visual Map
+    var plMaterial = new THREE.MeshStandardMaterial({map: pl2Texture, bumpMap: plTexture, bumpScale: 0.9, color: 0xfda600, metalness: 0.005});  // Low Metalness so that it doesn't reflect too much light
+    plMaterial.side = THREE.DoubleSide; // No real value, but the planet looks great from the inside xD
+      
+	var planetMesh = new THREE.Mesh(planet, plMaterial); // Creating Mesh
+      
+    planetMesh.position.x = -170; planetMesh.position.y = -20; planetMesh.position.z = 0; // Position
+        
+      
+    // FLAT EARTH (BOTTOM) ------------------------------------------------------------------------------------
+    const fpGeometry = new THREE.CylinderGeometry( 100, 100, 30, 40 );
+    var fpMap = new THREE.TextureLoader().load('flat_pl.png');
+    const fpMaterial = new THREE.MeshStandardMaterial( {color: 0xfcf6d7, roughness: 0.3, metalness: 0.001, map: fpMap, bumpMap: fpMap} );
+    var flatPlanet = new THREE.Mesh (fpGeometry, fpMaterial);
+    flatPlanet.position.set(0,-400,0);   // Initial Position
+    flatPlanet.rotation.set(0.5,-1.5,0); 
+    
+    // BOUNDING BOX EXPLANATION
+	// This is the first instance of the bounding box being used. I have created bounding boxes for all objects which popup a description when the player is near it. These are Box3s that use the .setFrom Object method to 'clone' the object.
+      
+    // FLAT PLANET BOUNDING BOX
+    var fpBB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+    fpBB.setFromObject(flatPlanet);
+    
+    // TEXTBOX EXPLANATION
+	// This is the first instance of the textbox being used. The Textbox is created as a Sprite mesh so that it points to the camera whenever added to the scene for legibility. The Sprites used are PNGs with empty backgrounds to give them the 'space look'.
+      
+    // FLAT PLANET SPRITE
+    var fpPNG = new THREE.TextureLoader().load('9-01.png');
+    var fpsMaterial = new THREE.SpriteMaterial({map: fpPNG});
+    var fpSprite = new THREE.Sprite(fpsMaterial);
+    fpSprite.position.set(0,-300,0);   // Copying from flatPlanet and then editing to move slightly above the object
+    fpSprite.scale.set (50,50,50);
+
+      
+      // SATELLITES 1 AND 2 -----------------------------------------------------------------------------------
+      
+      var satellite1 = new THREE.SphereGeometry(20,64,32); // Rotating Satellite
+      var satellite2 = new THREE.SphereGeometry(35,64,32); // Vibrating Satellite
+      
+      var sat1Texture = new THREE.TextureLoader().load('moon1texture.jpg');
+      var sat2Texture = new THREE.TextureLoader().load('moon2.jpg');
+      var satellite1Texture = new THREE.MeshBasicMaterial ({map: sat1Texture, bumpMap: sat1Texture, roughness: 0.4});
+      var satellite2Texture = new THREE.MeshBasicMaterial ({map: sat2Texture, bumpMap: sat2Texture, roughness: 0.4});
+      var stl1 = new THREE.Mesh(satellite1, satellite1Texture);
+      var stl2 = new THREE.Mesh(satellite2, satellite2Texture);
+
+      planetMesh.add(stl1);  // Setting the satellite as a child of the parent planet to copy rotation
+      stl1.position.z = -400; stl1.position.x = 350; //Defining its position from the parent
+
+      // SATELLITE 2
+      stl2.position.x = 400; stl2.position.z = 250; stl2.rotation.y = 1.6;
+
+      // BOUNDING BOX FOR SATELLITE 2
+      var stl2BB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+      stl2BB.setFromObject(stl2);
+
+      // SPRITES 
+      var stl2PNG = new THREE.TextureLoader().load('10-01.png');
+      var stl2sMaterial = new THREE.SpriteMaterial({map: stl2PNG});
+      var stl2Sprite = new THREE.Sprite(stl2sMaterial);
+      stl2Sprite.position.set(400,60,250);   // Copying from Satellite 2 and then Editing
+      stl2Sprite.scale.set (50,50,50);
+      
+      
+      
+      
+// SPACESHIPS ------------------------------------------------------------------------------------------
+      
+      
+      // Making the first spaceship --------------------------------------------------------------------
+      
+      // MAP AND BUMP MAP LOADERS ------------------------
+      var sstMap = new THREE.TextureLoader().load('unscsst-01.jpg'); // Loading up image for texture 
+      
+      // SPACESHIP TOP ----------------------------------------------------------------------------------
+      // The top of the spaceship is a lathe that is created by defining points and then joining them
+      
+      const spaceShipPoints = [];  //To make Lathe
+	  for ( let i = 0; i < 10; i ++ ) {
+		spaceShipPoints.push( new THREE.Vector2( Math.sin( i * 0.2 ) * 10 + 2, ( i - 5 ) ) );}
+      const spaceShipTop = new THREE.LatheGeometry( spaceShipPoints );   //Creating Geometry for lathe
+      const ssMaterial = new THREE.MeshStandardMaterial( {map: sstMap, color: 0xeaeaea, specular: 0xf6f6f6, reflectivity: 1, roughness: 0.2} );  // Spaceship material
+      const ss1Top = new THREE.Mesh( spaceShipTop, ssMaterial );
+      ss1Top.scale.set(0.5,0.5,0.5);
+      ss1Top.rotation.x = 3.14;
+      ssMaterial.side = THREE.DoubleSide;
+      
+      
+      // SPACESHIP BOTTOM
+      const spaceShipBottom = new THREE.CylinderGeometry( 5.6, 13, 4, 32 );
+      var ssbMap = new THREE.TextureLoader().load('unscssb-01.jpg');
+      const ssbMaterial = new THREE.MeshStandardMaterial( {map: ssbMap, color: 0xeaeaea, specular: 0xf6f6f6, reflectivity: 0.8, roughness: 0.2} );  // Spaceship material
+      const ss1Bottom = new THREE.Mesh(spaceShipBottom, ssbMaterial);
+      ss1Bottom.position.y = -2.6;
+      
+	  //SPACESHIP GUNS
+      const ssGuns = new THREE.CylinderGeometry(0.5,0.5,14,32);
+      const ssgMaterial = new THREE.MeshStandardMaterial( {map: ssbMap, color: 0xeaeaea, specular: 0xf6f6f6, reflectivity: 0.8, roughness: 0.2} );
+      const ssGunMesh1 = new THREE.Mesh(ssGuns, ssgMaterial);
+      ssGunMesh1.position.set(-3,-1.5,-7.5);
+      ssGunMesh1.rotation.set(1.6,0,1.6);
+
+      const ssGunMesh2 = new THREE.Mesh(ssGuns, ssgMaterial);
+      ssGunMesh2.position.set(-3,-1.5,7.5);
+      ssGunMesh2.rotation.set(1.6,0,1.6);
+
+      // INITIAL SPACESHIP'S GROUPING
+      const spaceShip1 = new THREE.Group(); // Grouping the 4 objects to create a Space Ship object
+      spaceShip1.add(ss1Top, ss1Bottom, ssGunMesh1, ssGunMesh2);
+      
+
+// POSITIONING SPACESHIP, BOUNDING BOX AND SPRITE ----------------------------------------------------------  
+
+      spaceShip1.position.set(70,30,-60);      // Positioning
+      spaceShip1.rotation.set(0.5,0.4,0.2);
+      
+      // BOUNDING BOX
+      var ss1BB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+      ss1BB.setFromObject(spaceShip1);
+
+      // SPRITE 
+      var ss1PNG = new THREE.TextureLoader().load('2-01.png');
+      var ss1sMaterial = new THREE.SpriteMaterial({map: ss1PNG});
+      var ss1Sprite = new THREE.Sprite(ss1sMaterial);
+      ss1Sprite.position.set = spaceShip1.position;
+      ss1Sprite.position.x += 70;
+      ss1Sprite.position.z -= 60;
+      ss1Sprite.position.y += 45;
+      ss1Sprite.scale.set (20,20,20);
+      scene.add(ss1Sprite);
+
+// MAKING COPIES AND PERFORMING THE SAME OPERATIONS ON EACH-----------------------------------------------
+      
+      var spaceShip2 = spaceShip1.clone();   // Spaceship 2
+      spaceShip2.position.set(120,40,20);
+      spaceShip2.rotation.set(0.2,-0.5,0.4);
+
+      // BOUNDING BOX
+      var ss2BB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+      ss2BB.setFromObject(spaceShip2);
+
+      // SPRITE
+      var ss2PNG = new THREE.TextureLoader().load('3-01.png');
+      var ss2sMaterial = new THREE.SpriteMaterial({map: ss2PNG});
+      var ss2Sprite = new THREE.Sprite(ss2sMaterial);
+      ss2Sprite.position.set(120,55,20);   // Copying from Spaceship 2 and then Editing
+      ss2Sprite.scale.set (20,20,20);  
+      
+//-------------------------------------------------------------------------------------------------------//    
+      var spaceShip3 = spaceShip2.clone();   // Spaceship 3
+      spaceShip3.position.set(80,-20,40);
+      spaceShip3.rotation.set(0.6,-0.8,0.5);
+      
+      // BOUNDING BOX
+      var ss3BB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+      ss3BB.setFromObject(spaceShip3);
+
+      // SPRITE
+      var ss3PNG = new THREE.TextureLoader().load('4-01.png');
+      var ss3sMaterial = new THREE.SpriteMaterial({map: ss3PNG});
+      var ss3Sprite = new THREE.Sprite(ss3sMaterial);
+      ss3Sprite.position.set(80,-5,40);   // Copying from Spaceship 3 and then Editing
+      ss3Sprite.scale.set (20,20,20);   
+      
+//--------------------------------------------------------------------------------------------------------//
+      
+      var spaceShip4 = spaceShip2.clone();   // Spaceship 4
+      spaceShip4.position.set(0,-20,-250);
+      spaceShip4.rotation.set(-0.3,1.35,0.5);
+      
+      // BOUNDING BOX
+      var ss4BB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+      ss4BB.setFromObject(spaceShip4);
+
+      // SPRITE
+      var ss4PNG = new THREE.TextureLoader().load('5-01.png');
+      var ss4sMaterial = new THREE.SpriteMaterial({map: ss4PNG});
+      var ss4Sprite = new THREE.Sprite(ss4sMaterial);
+      ss4Sprite.position.set(0,-5,-250);   // Copying from Spaceship 4 and then Editing
+      ss4Sprite.scale.set (20,20,20);
+
+      
+// CONTROL ROOM VEHICLE --------------------------------------------------------------------------------
+      
+      // The control room objects are built by defining a shape and then extruding it
+      var crShape = new THREE.Shape();
+      crShape.moveTo( 0,0 );
+      crShape.lineTo( 4, 19 );
+      crShape.lineTo( 6, 20 );
+      crShape.lineTo( 9, 20 );
+      crShape.lineTo( 6, 18 );
+      crShape.lineTo( 1, 20 );
+      crShape.lineTo( 0, 20 );
+      crShape.lineTo( 0, 0 );
+
+      const crExtrudeSettings = {
+          steps: 5,
+          depth: 20,
+          bevelEnabled: true,
+          bevelThickness: 2,
+          bevelSize: 5,
+          bevelOffset: 0,
+          bevelSegments: 1
+      };
+
+      const crGeometry = new THREE.ExtrudeGeometry( crShape, crExtrudeSettings );
+      var crTexture = new THREE.TextureLoader().load('crmap-01.jpg'); // Loading up image for texture
+      const crMaterial = new THREE.MeshStandardMaterial( {color: 0xeaeaea, roughness: 0.3, metalness: 0.9 } );
+      const controlRoomBody = new THREE.Mesh(crGeometry, crMaterial ) ;
+
+      // CONTROL ROOM CRYSTAL -----------------------------------------------------------------------------
+      var crcGeometry = new THREE.IcosahedronGeometry(5);
+      var crcMaterial = new THREE.MeshStandardMaterial({wireframe: true, wireframeLinewidth: 5});
+      var crCrystal = new THREE.Mesh(crcGeometry, crcMaterial);
+      crCrystal.position.y = 30;
+      crCrystal.position.z = 7;
+      crCrystal.position.x = 2;
+      crCrystal.rotation.x = 1;
+
+      //CONTROL ROOM SIGNAL ------------------------------------------------------------------------------
+      var crsShape = new THREE.Shape();
+      crsShape.moveTo( 0,0 );
+      crsShape.lineTo(0,20);
+      crsShape.lineTo(30,30);
+      crsShape.lineTo(30,-15);
+      crsShape.lineTo(20,-17);
+      crsShape.lineTo(0,0);
+      
+      const crsGeometry = new THREE.ExtrudeGeometry( crsShape, crExtrudeSettings );
+      var crSignal = new THREE.Mesh(crsGeometry, crcMaterial);
+          
+      // CONTROL ROOM GROUP ------------------------------------------------------------------------------
+      const controlRoom = new THREE.Group();
+      controlRoom.add(controlRoomBody, crCrystal, crSignal);
+	  controlRoom.position.set(100,100,-30); controlRoom.rotation.set(0,0,0.5);
+      
+      //BOUNDING BOX ------------------------------------------------------------------------------------
+      var cr1BB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+      cr1BB.setFromObject(controlRoom);
+    
+      
+      // SPRITE -----------------------------------------------------------------------------------------
+      var cr1PNG = new THREE.TextureLoader().load('7-01.png');
+      var cr1Material = new THREE.SpriteMaterial({map: cr1PNG});
+      var cr1Sprite = new THREE.Sprite(cr1Material);
+      cr1Sprite.position.set(90,150,-20);  cr1Sprite.scale.set (30,30,30);
+      
+      
+// MAKING COPIES AND POSITIONING CONTROL ROOMS -------------------------------------------------------- 
+      
+      var controlRoom2 = controlRoom.clone();   // Control Room 2
+      controlRoom2.position.set(120,-150,200); controlRoom2.rotation.set(0.4,-0.8,0);
+      
+      //BOUNDING BOX -----------------------------------------------------------------------------------
+      var cr2BB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+      cr2BB.setFromObject(controlRoom2);
+
+      // SPRITE ----------------------------------------------------------------------------------------- 
+      var cr2PNG = new THREE.TextureLoader().load('8-01.png');
+      var cr2Material = new THREE.SpriteMaterial({map: cr2PNG});
+      var cr2Sprite = new THREE.Sprite(cr2Material);
+      cr2Sprite.position.set(130,-110,230);  cr2Sprite.scale.set (30,30,30);
+
+      
+//---------------------------------------------------------------------------------------------------------//
+      
+      // ESCAPE POD BODY
+      const epbGeometry = new THREE.CylinderGeometry( 1.5, 1.5, 10, 40 );
+	  const epbMaterial = new THREE.MeshStandardMaterial( {color: 0xc0d4eb, map: crTexture, roughness: 0.3, metalness: 0.4} );
+	  const epBody = new THREE.Mesh( epbGeometry, epbMaterial );
+
+      // ESCAPE POD TIP --------------------------------------------------------------------------------------
+      const eptGeometry = new THREE.CylinderGeometry( 0.2, 1.5, 3, 40 );
+      const eptMaterial = new THREE.MeshStandardMaterial( {color: 0xc2694e, roughness: 0.3, metalness: 0.4} );
+      var epTip = new THREE.Mesh (eptGeometry, eptMaterial);
+ 	  epTip.position.y = 6.5; 
+      
+      // ESCAPE POD GROUP -----------------------------------------------------------------------------------
+      var escapePod1 = new THREE.Group();
+      escapePod1.add(epBody, epTip);
+	  escapePod1.position.set(-70,70,0); escapePod1.rotation.set(0,0,-0.5);
+      
+//--------------------------------------------------------------------------------------------------------//      
+      
+      // MAKING COPIES AND POSITIONING ----------------------------------------------------------------------
+      var escapePod2 = escapePod1.clone();
+      escapePod2.position.set(-50,-50,-300); escapePod2.rotation.set(0,-1,1.8);
+      
+      var escapePod3 = escapePod1.clone();
+      escapePod3.position.set(300,20,0); escapePod3.rotation.set(1.5,0,-1.5);
+      
+      var escapePod4 = escapePod1.clone();
+      escapePod4.position.set(100,-200,100); escapePod4.rotation.set(2.4,0,-1);
+
+//--------------------------------------------------------------------------------------------------------------//
+      
+      // PHASOR BULLETS ----------------------------------------------------------------------------------------
+      const bulletGeometry = new THREE.OctahedronGeometry(0.5);
+      const bulletMaterial = new THREE.MeshBasicMaterial( {color: 0xff0d0d} );
+      const b1 = new THREE.Mesh( bulletGeometry, bulletMaterial);
+      
+      // MAKING COPIES AND POSITIONING TO CREATE AN ARRAY ------------------------------------------------------
+      var b2 = b1.clone(); b2.position.y = 3;
+      var b3 = b1.clone(); b3.position.y = 6;
+      var b4 = b1.clone(); b4.position.y = 0; b4.position.z = 16;
+      var b5 = b1.clone(); b5.position.y = 3; b5.position.z = 16;
+      var b6 = b1.clone(); b6.position.y = 6; b6.position.z = 16;
+      
+      // CREATING GROUP --------------------------------------------------------------------------------------
+      var bullets1 = new THREE.Group();
+      bullets1.add(b1,b2,b3,b4,b5,b6); bullets1.position.set(50,25,-65); bullets1.rotation.set(0.3,0.2,1.8);
+	  var bullets2 = bullets1.clone(); bullets2.position.set(60,-30,20); bullets2.rotation.set(0.4,2.2,0.8);
+      
+      // BOUNDING BOX ------------------------------------------------------------------------------------
+      var pb2BB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+      pb2BB.setFromObject(bullets2);
+
+      // SPRITE ------------------------------------------------------------------------------------------
+      var pb2PNG = new THREE.TextureLoader().load('6-01.png');
+      var pb2Material = new THREE.SpriteMaterial({map: pb2PNG});
+      var pb2Sprite = new THREE.Sprite(pb2Material);
+      pb2Sprite.position.set(60,-10,20); pb2Sprite.scale.set (20,20,20);     
+      
+//--------------------------------------------------------------------------------------------------------//
+      
+// HERO SHIP ----------------------------------------------------------------------------------------------
+      
+      // HERO SHIP MAIN BODY -----------------------------------------------------------------------------
+      var hssGeometry = new THREE.SphereGeometry( 5, 64, 32 );
+      var hssTesture = new THREE.TextureLoader().load('hero_sphere.jpg');
+      var hssMaterial = new THREE.MeshStandardMaterial({bumpMap: hssTesture, bumpMapIntensity: 0.2, color: 0xeaeaea, metalness: 0.6});
+      var hsSphere = new THREE.Mesh(hssGeometry, hssMaterial);
+      
+      // HERO SHIP'S RINGS ------------------------------------------------------------------------------
+      var r1Geometry = new THREE.RingGeometry( 5.5, 6, 32 );
+      var r1Material = new THREE.MeshStandardMaterial( { color: 0x23c21d, metalness: 0.4 } );
+      const ring1 = new THREE.Mesh( r1Geometry, r1Material );
+      
+      var r2Geometry = new THREE.RingGeometry( 6, 6.5, 32 );
+      const ring2 = new THREE.Mesh( r2Geometry, r1Material );
+      ring2.rotation.y = 0.9
+      
+      var r3Geometry = new THREE.RingGeometry( 6.5, 7, 32 );
+      const ring3 = new THREE.Mesh( r3Geometry, r1Material );
+      ring3.rotation.x = 1;
+      
+      
+      // HERO SHIP GROUP -------------------------------------------------------------------------------
+      var heroShip = new THREE.Group();
+      heroShip.add(hsSphere, ring1, ring2, ring3);
+      heroShip.position.set(-30,-20,-20);
+      heroShip.rotation.set(0.5,1,0);
+      
+      // BOUNDING BOX ----------------------------------------------------------------------------------
+      var hsBB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+      hsBB.setFromObject(heroShip);
+
+      // SPRITE ----------------------------------------------------------------------------------------
+      var hsPNG = new THREE.TextureLoader().load('1-01.png');
+      var hsMaterial = new THREE.SpriteMaterial({map: hsPNG});
+      var hsSprite = new THREE.Sprite(hsMaterial);
+      hsSprite.position.set = heroShip.position; hsSprite.position.x -= 30; hsSprite.position.z -= 20; hsSprite.scale.set (20,20,20);
+      
+      
+//--------------------------------------- ADDING OBJECTS TO SCENE ------------------------------------------//
+      
+	scene.add(planetMesh, flatPlanet, spaceShip1, spaceShip2, spaceShip3, spaceShip4, stl2, controlRoom, controlRoom2, escapePod1, escapePod2, escapePod3, escapePod4, bullets1, bullets2, heroShip );
+           
+      
+//----------------------------------------------- BACKGROUND -----------------------------------------------//
+
+      
+    // FOG - CREATING A BLACK FOG EXP 2 TO CREATE A SENSE OF DISTANCE --------------------------------------
+    var near = 300; var far = 500;
+    var fog = new THREE.FogExp2(0x000000, 0.003, near,far);
+      
+    // FUNCTION TO GENERATE ARBITARY VALUES WITHIN A RANGE -------------------------------------------------
+    function getRandomArbitrary(min, max) {
+      return Math.random() * (max - min) + min;
+    } 
+ 
+    // RANDOM CELESTIAL BODIES -----------------------------------------------------------------------------
+      //The white dots that are floating around, vibrating and rotating.
+      const vertices = [];
+      for ( let i = 0; i < 1000000; i ++ ) {
+          const x = getRandomArbitrary(-1,1) * 2000;  //Creates a random value between 0.1 and 2000
+          const y = getRandomArbitrary(-1,1) * 2000;
+          const z = getRandomArbitrary(-1,1) * 2000;
+          vertices.push( x, y, z );  // Push randomised vertices to the array
+      }
+      const cbGeometry = new THREE.BufferGeometry();
+      cbGeometry.setAttribute( 'position', new THREE.Float32BufferAttribute( vertices, 3 ) );
+      const cbMaterial = new THREE.PointsMaterial( { color: 0x888888 } );
+      const points = new THREE.Points(cbGeometry,cbMaterial);	// Group of all random objects
+      
+//------------------------------------------- ADDING BG TO SCENE ---------------------------------------------//
+
+      scene.fog = fog; // COMMMENT TO REMOVE FOG AND SEE THE WORLD WITHOUT 'DEPTH'
+      scene.add(points); // Adding random celestial objects
+      planetMesh.add(points);  // Setting all the points as children of the parent planet to copy its rotation in space
+
+//-------------------------------------------- CREATING LIGHTS -------------------------------------------------//  
+   
+    var ambientLight1 = new THREE.AmbientLight(0x404040); // soft white light
+    var torch = new THREE.DirectionalLight(); //Directional light that follows the camera around
+    torch.castShadow = true; 
+    
+	// ADDING LIGHTS TO SCENE ----------------------------------------------------------------------------------------
+	scene.add(ambientLight1);
+    scene.add(torch); 
+       
+//------------------------------------------- CAMERA + INITIAL POSITION -------------------------------------------//
+     
+      
+	// CAMERA ----------------------------------------------------------------------------------------------      
+	var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 1500); // Creating Camera
+    camera.position.x = -74.3; camera.position.y = -5.62; camera.position.z = 76.96; // Setting camera position
+      
+      
+   // CUBE AROUND CAMERA -----------------------------------------------------------------------------------
+   // Creating a cube of 50x50x50 around the camera that will be invisible. In the main animation loop, the cube updates its position with the camera. It is used to detect whether the camera is in the vicinity of another object in a 50x50x40 cuboidal field   
+    var cameraBox = new THREE.BoxGeometry(50,50,50);
+	var camMaterial = new THREE.MeshBasicMaterial(); 
+	var cameraBoxMesh = new THREE.Mesh(cameraBox, camMaterial);
+  
+    // Camera Bounding Box  
+    var cameraBB = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());  // Creating a bounding box for the cameraBox
+    cameraBB.setFromObject(cameraBoxMesh);  //Position set from cameraBox
+       
+//--------------------------------------------- MUSIC --------------------------------------------------//     
+    
+    const listener = new THREE.AudioListener();
+    camera.add( listener );   
+    const audioLoader = new THREE.AudioLoader();  
+
+    const bgSound = new THREE.Audio(listener); // Background Sound
+    audioLoader.load( 'bg_sound.mp3', function( buffer ) {
+	bgSound.setBuffer( buffer ); bgSound.setLoop(true); bgSound.setVolume(0.5); bgSound.play(); });
+    // Set to loop and start from the beginning
+      
+    const ssSound = new THREE.Audio(listener); // Spaceships Sound
+    audioLoader.load( 'ssSound.mp3', function( buffer ) {
+	ssSound.setBuffer( buffer ); ssSound.setLoop(false); ssSound.setVolume(0.005); });   
+    
+    const hsSound = new THREE.Audio(listener); // Hero Sphere Sound
+    audioLoader.load( 'hsSound.mp3', function( buffer ) {
+	hsSound.setBuffer( buffer ); hsSound.setLoop(false); hsSound.setVolume(0.5); });   
+      
+    const pbSound = new THREE.Audio(listener); // Phasor Beams
+    audioLoader.load( 'pbSound.mp3', function( buffer ) {
+	pbSound.setBuffer( buffer ); pbSound.setLoop(false); pbSound.setVolume(0.5); });   
+ 
+    const stlSound = new THREE.Audio(listener); // Satellite Sound
+    audioLoader.load( 'stlSound.mp3', function( buffer ) {
+	stlSound.setBuffer( buffer ); stlSound.setLoop(false); stlSound.setVolume(0.5); });   
+ 
+    const plSound = new THREE.Audio(listener); // Planet Sound
+    audioLoader.load( 'plSound.mp3', function( buffer ) {
+	plSound.setBuffer( buffer ); plSound.setLoop(false); plSound.setVolume(0.5); });   
+
+    const cr1Sound = new THREE.Audio(listener); // Background Sound
+    audioLoader.load( 'cr1Sound.mp3', function( buffer ) {
+	cr1Sound.setBuffer( buffer ); cr1Sound.setLoop(false); cr1Sound.setVolume(0.5); });      
+      
+//---------------------------------- SCREEN AND CONTROL ADJUSTMENTS ---------------------------------//    
+
+	renderer.setPixelRatio(window.devicePixelRatio);
+	renderer.setSize(window.innerWidth, window.innerHeight);
+	document.body.appendChild(renderer.domElement);
+	window.addEventListener('resize', onWindowResize, false); 
+    var controls = new THREE.OrbitControls (camera, renderer.domElement);
+      
+//-------------------------------------- CHECK COLLISION FUNCTION ------------------------------------// 
+      
+      // THis function is used to check collisions and is called in the final animation loop. It uses the .intersectsBox method to judge whether the camera's 50x50x50 bounding box is intersecting with that of any of the objects. If it does, it adds the corresponding sprite to the scene and plays any associated sound effects.
+      
+      function checkCollision () {
+
+        // Hero Ship
+        if (cameraBB.intersectsBox(hsBB)) { scene.add(hsSprite); hsSound.play(); } 
+        else { scene.remove(hsSprite); }
+        
+        // SpaceShip1
+        if (cameraBB.intersectsBox(ss1BB)) { scene.add(ss1Sprite); ssSound.play(); }
+ 		else { scene.remove(ss1Sprite); }
+        
+        // SpaceShip2
+        if (cameraBB.intersectsBox(ss2BB)) { scene.add(ss2Sprite); ssSound.play(); }
+ 		else { scene.remove(ss2Sprite); }
+        
+        // SpaceShip3
+        if (cameraBB.intersectsBox(ss3BB)) { scene.add(ss3Sprite); ssSound.play(); }
+ 		else { scene.remove(ss3Sprite); }
+        
+        // SpaceShip4
+        if (cameraBB.intersectsBox(ss4BB)) { scene.add(ss4Sprite); ssSound.play(); }
+ 		else { scene.remove(ss4Sprite); }
+        
+        // Phasor Bullets
+        if (cameraBB.intersectsBox(pb2BB)) { scene.add(pb2Sprite); pbSound.play(); }
+ 		else { scene.remove(pb2Sprite); }
+        
+        // Control Room 1
+        if (cameraBB.intersectsBox(cr1BB)) { scene.add(cr1Sprite); cr1Sound.play(); }
+ 		else { scene.remove(cr1Sprite); }
+        
+        // Control Room 2
+        if (cameraBB.intersectsBox(cr2BB)) { scene.add(cr2Sprite); cr1Sound.play(); }
+ 		else { scene.remove(cr2Sprite); }
+        
+        // Flat Planet
+        if (cameraBB.intersectsBox(fpBB)) { scene.add(fpSprite); plSound.play();}
+ 		else { scene.remove(fpSprite); }
+        
+        // Satellite 2
+        if (cameraBB.intersectsBox(stl2BB)) { scene.add(stl2Sprite); stlSound.play();}
+ 		else { scene.remove(stl2Sprite); }
+        
+      }
+
+//------------------------------------ MAIN DRAW LOOP ------------------------------------------//
+ 
+function draw() {
+  	
+  	//console.log(camera.position) // Logs camera position in the console
+    torch.position = cameraBB.position; // Sets the position of the 'torch' light to that of the camera's bounding box in order to create subtle light highlights on objects incident from the player's position.
+  
+  	planetMesh.rotation.y -= 0.0002; // Rotation of the planet and its child satellite around it
+    stl1.rotation.y += 0.002; // Rotation of the satellite around its own vertical axis
+  	crCrystal.rotation.x += 0.01 * Math.random(); // The crystal on top of the Control Room shiop rotating
+    flatPlanet.rotation.x += 0.0001 * Math.random(); // Random function used to change the rotation of the Flat Planet at the bottom.
+    flatPlanet.rotation.z -= 0.0005;
+	points.position.y =+ getRandomArbitrary(-0.2,0.2); // The points vibrate up and down in a random increment 
+  	
+  	// SATELLITE 2 VIBRATION
+    stl2.position.x -= 0.6 * Math.cos(stl2.position.z); 
+    stl2.position.z -= 0.6 * Math.sin(stl2.position.x);
+
+    // HERO SHIP RINGS
+  	ring1.rotation.x -= 0.05 * Math.random();
+    ring2.rotation.y += 0.05 * Math.random();
+    ring3.rotation.x += 0.05 * Math.random();
+  
+  	// ADDING OR REMOVING FIRST SPLASH SCREEN
+  	if ((camera.position.x <= -70) && (camera.position.x >= -80) && (camera.position.z >= 70) && (camera.position.z <= 80)) {
+        scene.add(ssSprite);}
+      else { scene.remove(ssSprite);} // The Splash Screen is only visible if the player is in and around the starting position
+
+    // BULLETS PHASE
+    bullets1.position.x += 1 * Math.cos(bullets1.position.z); bullets1.position.z -= 1 * Math.sin(bullets1.position.x); bullets2.position.x += 1 * Math.cos(bullets2.position.z);  bullets2.position.z -= 1 * Math.sin(bullets2.position.x);
+
+  	cameraBoxMesh.position.x = camera.position.x;  //Update cameraBox position according to camera position
+  	cameraBoxMesh.position.y = camera.position.y; 
+  	cameraBoxMesh.position.z = camera.position.z;
+  	cameraBB.setFromObject(cameraBoxMesh);  //Update cameraBB (cameraBox's bounding box's position
+  
+  	checkCollision();   // Calling the checkCollision function in the main draw loop
+  
+    controls.update();
+	renderer.render(scene, camera);
+	requestAnimationFrame(draw);
+}
+
+//----------------------- WINDOW RESIZE FUNCTION -----------------------//
+      
+function onWindowResize() {
+	camera.aspect = window.innerWidth / 		window.innerHeight;
+	camera.updateProjectionMatrix();
+	renderer.setSize(window.innerWidth, window.innerHeight);
+}    
+
+//----------------------- REQUEST ANIMATION FRAME -----------------------//
+      
+requestAnimationFrame(draw());
+      
+//------------------------------ END OF CODE -------------------------------//      
+      
+
+</script>
+</body>
+
+</html>
