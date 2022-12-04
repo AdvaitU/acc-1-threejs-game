@@ -1,7 +1,7 @@
 # acc-1-threejs-game
 Video game prototype created as the final project for Advanced Creative Coding-1 at CCI.
 
-Find a video demonstration here: 
+Find a video demonstration here: https://youtu.be/0XNom6zfKkc
 Link to GitHub Repo: https://github.com/AdvaitU/acc-1-threejs-game
 Link to MIMIC Project Build: https://mimicproject.com/code/0d7dc9c2-37dc-d5db-5d56-1e19e1c50f24
 
